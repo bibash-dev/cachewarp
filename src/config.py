@@ -1,15 +1,36 @@
-from pydantic import Field, RedisDsn, HttpUrl
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, HttpUrl, RedisDsn
+
 
 class Settings(BaseSettings):
-    redis_url: RedisDsn = Field(default="redis://localhost:6379")
-    origin_url: HttpUrl = Field(default="http://localhost:8080")
-    cache_default_ttl: int = Field(default=30, ge=1, le=86400)  # TTL in seconds
+    # Redis connection URL
+    redis_url: RedisDsn = Field(
+        default="redis://localhost:6379",
+        description="Redis connection URL"
+    )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "allow"
+    # Origin API URL
+    origin_url: HttpUrl = Field(
+        default="http://localhost:8080",
+        description="API origin URL"
+    )
 
+    # Default cache TTL in seconds
+    cache_default_ttl: int = Field(
+        default=30,
+        ge=1,  # Minimum value constraint
+        description="Default Time-to-Live for cache in seconds"
+    )
+
+    # Configuration settings
+    model_config = SettingsConfigDict(
+        env_file=".env",  # Use .env file for environment variables
+        env_file_encoding="utf-8",  # Define encoding for the env file
+        case_sensitive=True,  # Case-sensitive environment variables
+        validate_assignment=True,  # Validate fields during runtime assignments
+        extra="allow"  # Allow additional fields not defined in the model
+    )
+
+
+# Initialize the settings instance
 settings = Settings()

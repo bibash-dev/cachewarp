@@ -1,20 +1,38 @@
-from fastapi import FastAPI
-import uvicorn
-from config import settings  # NEW: Centralized config
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="CacheWarp", version="0.1.0")
+from fastapi import FastAPI, Request
+
+from src.config import settings
+from src.proxy.cache import Cache
+from src.proxy.middleware import caching_middleware
+
+cache = Cache()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await cache.connect()
+    yield
+    await cache.close()
+
+
+app = FastAPI(
+    title="CacheWarp",
+    lifespan=lifespan,
+)
+
+
+@app.middleware("http")
+async def apply_caching(request: Request, call_next):
+    try:
+        return await caching_middleware(request, call_next, cache)
+    except RuntimeError:
+        return await call_next(request)
+
 
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
-        "redis": settings.redis_url  # Verify config works
+        "redis": "connected" if cache.redis else "disconnected",
     }
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,  # Enable dev reload
-    )
