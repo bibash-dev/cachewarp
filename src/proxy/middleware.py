@@ -3,47 +3,40 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
 from .cache import Cache
-
+from .origin import fetch_origin
+from src.logging import logger
 
 async def caching_middleware(request: Request, call_next, cache: Cache):
+    logger.info(f"Processing request: {request.url.path}")
     if request.method != "GET":
+        logger.debug("Non-GET request, bypassing cache")
         return await call_next(request)
 
     cache_key = f"cache:{request.url.path}"
-
-    # Check for cached content
-    if cached := await cache.get(cache_key):
-        return JSONResponse(content=cached)
-
-    # Process request and retrieve response
-    response = await call_next(request)
-    if response.status_code != 200:
-        return response
-
-    # Collect response body
-    body = b""
-    async for chunk in response.body_iterator:
-        body += chunk
-
-    # Check content type
-    content_type = response.headers.get("content-type", "")
-    if "application/json" not in content_type:
-        return Response(
-            content=body,
-            status_code=response.status_code,
-            headers=dict(response.headers),
-            media_type=response.media_type,
-        )
-
     try:
-        # Parse JSON and cache the content
-        content = json.loads(body.decode("utf-8"))
-        await cache.set(cache_key, content)
-        return JSONResponse(content=content, status_code=200)
-    except (ValueError, TypeError, UnicodeDecodeError) as e:
-        return Response(
-            content=body,
-            status_code=response.status_code,
-            headers=dict(response.headers),
-            media_type=response.media_type,
-        )
+        if cached := await cache.get(cache_key):
+            logger.info(f"Cache hit: {cache_key}")
+            return JSONResponse(content=cached)
+        logger.info(f"Cache miss: {cache_key}")
+    except Exception as e:
+        logger.error(f"Cache get error: {str(e)}", exc_info=True)
+        pass
+
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    origin_data = await fetch_origin(request.url.path)
+    if "error" not in origin_data:
+        try:
+            await cache.set(cache_key, origin_data)
+            logger.info(f"Cache set: {cache_key}")
+        except Exception as e:
+            logger.error(f"Cache set error: {str(e)}", exc_info=True)
+            pass
+        return JSONResponse(content=origin_data, status_code=200)
+
+    logger.warning(f"Origin error: {origin_data['error']}")
+    return JSONResponse(
+        content=origin_data,
+        status_code=404 if origin_data["error"] == "Not found" else 500
+    )
