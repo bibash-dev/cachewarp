@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     )
 
     # Origin API URL
-    origin_url: HttpUrl = Field(
+    origin_url: str = Field(
         default="http://localhost:8080",
         description="API origin URL"
     )
