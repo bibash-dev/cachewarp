@@ -23,7 +23,7 @@ class JsonFormatter(logging.Formatter):
 # Configure the root logger
 def setup_logging():
     logger = logging.getLogger("cachewarp")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)  # in prod, change into to INFO
 
     # Clear any existing handlers to avoid duplicates
     logger.handlers.clear()

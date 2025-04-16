@@ -22,6 +22,13 @@ class Settings(BaseSettings):
         description="Default Time-to-Live for cache in seconds"
     )
 
+    # L1 cache maximum size
+    l1_cache_maxsize: int = Field(
+        default=1000,
+        ge=1,
+        description="Maximum number of items in the L1 in-memory cache"
+    )
+
     # Configuration settings
     model_config = SettingsConfigDict(
         env_file=".env",  # Use .env file for environment variables
