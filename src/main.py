@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 
@@ -47,6 +47,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=422,
         content={"error": "Invalid request", "details": exc.errors()}
     )
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)  # No Content
 
 @app.get("/health")
 async def health():

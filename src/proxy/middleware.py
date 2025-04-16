@@ -7,6 +7,9 @@ from .origin import fetch_origin
 from src.logging import logger
 
 async def caching_middleware(request: Request, call_next, cache: Cache):
+    if request.url.path == "/favicon.ico":
+        return await call_next(request)
+
     logger.info(f"Processing request: {request.url.path}")
     if request.method != "GET":
         logger.debug("Non-GET request, bypassing cache")
