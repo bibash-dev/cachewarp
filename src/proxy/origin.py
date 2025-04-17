@@ -26,9 +26,9 @@ async def fetch_origin(path: str) -> dict:
         if path.startswith("/static/"):
             return {
                 "content_type": "image/png",
-                "data": {"data": "mock_image", "path": path}
+                "data": {"mock_image": True, "path": path}
             }
         return {
             "content_type": "application/json",
-            "data": {"data": f"mock_response_for_{path.lstrip('/')}", "path": path}
+            "data": {f"mock_response_for_{path.lstrip('/')}": True, "path": path}
         }
