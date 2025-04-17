@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, HttpUrl, RedisDsn
+from typing import List, Dict
 
 
 class Settings(BaseSettings):
@@ -27,6 +28,25 @@ class Settings(BaseSettings):
         default=1000,
         ge=1,
         description="Maximum number of items in the L1 in-memory cache"
+    )
+
+    # Dynamic TTL rules based on content type
+    ttl_by_content_type: Dict[str, int] = Field(
+        default={
+            "application/json": 30,  # JSON responses (e.g., API data)
+            "image/png": 300,  # Images (longer TTL due to static nature)
+            "text/html": 60,  # HTML pages
+        },
+        description="TTL in seconds for different content types"
+    )
+
+    # Dynamic TTL rules based on path patterns (e.g., /health, /static/*)
+    ttl_by_path_pattern: List[Dict[str, str | int]] = Field(
+        default=[
+            {"pattern": "/health", "ttl": 5},
+            {"pattern": "/static/*", "ttl": 600},
+        ],
+        description="TTL in seconds for specific path patterns"
     )
 
     # Configuration settings
