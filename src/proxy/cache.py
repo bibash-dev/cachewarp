@@ -1,7 +1,7 @@
 import json
 from typing import Optional, Any
 from redis.asyncio import Redis
-from cachetools import LRUCache, TTLCache
+from cachetools import TTLCache
 
 from src.config import settings
 from src.logging import logger
@@ -58,19 +58,22 @@ class Cache:
             logger.error(f"Redis get error for key {key}: {str(e)}", exc_info=True)
             return None
 
-    async def set(self, key: str, value: Any):
-        """Set the value for a given key in both L1 and L2 caches."""
-        # Set in L1 cache
+    async def set(self, key: str, value: Any, ttl: Optional[int] = None):
+        """Set the value for a given key in both L1 and L2 caches with an optional TTL."""
+        # Use provided TTL, or fall back to default
+        effective_ttl = ttl if ttl is not None else settings.cache_default_ttl
+
+        # Set in L1 cache (TTLCache has its own TTL; we can't override per key)
         self.l1_cache[key] = value
         logger.debug(f"L1 cache set: {key}")
 
-        # Set in L2 cache (Redis)
+        # Set in L2 cache (Redis) with the specified TTL
         if not self.redis:
             logger.error("Redis not connected")
             raise RuntimeError("Redis not connected")
         try:
-            await self.redis.setex(key, settings.cache_default_ttl, json.dumps(value))
-            logger.debug(f"L2 cache set: {key}")
+            await self.redis.setex(key, effective_ttl, json.dumps(value))
+            logger.debug(f"L2 cache set: {key} with TTL {effective_ttl} seconds")
         except Exception as e:
             logger.error(f"Redis set error for key {key}: {str(e)}", exc_info=True)
             pass
