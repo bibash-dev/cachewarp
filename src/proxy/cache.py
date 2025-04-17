@@ -1,7 +1,7 @@
 import json
 from typing import Optional, Any
 from redis.asyncio import Redis
-from cachetools import TTLCache
+from cacheout import Cache as CacheOut
 
 from src.config import settings
 from src.logging import logger
@@ -9,10 +9,10 @@ from src.logging import logger
 class Cache:
     def __init__(self):
         self.redis: Optional[Redis] = None
-        # L1 cache: in-memory LRU cache with TTL
-        self.l1_cache = TTLCache(
+        # L1 cache: in-memory cache with LRU eviction
+        self.l1_cache = CacheOut(
             maxsize=settings.l1_cache_maxsize,  # Number of items
-            ttl=settings.cache_default_ttl      # TTL in seconds
+            # No global TTL; we'll set per-key TTLs in the set method
         )
 
     async def connect(self):
@@ -35,9 +35,9 @@ class Cache:
     async def get(self, key: str) -> Optional[Any]:
         """Retrieve the value for the given key from L1 or L2 cache."""
         # Check L1 cache first
-        if key in self.l1_cache:
+        if value := self.l1_cache.get(key):
             logger.debug(f"L1 cache hit: {key}")
-            return self.l1_cache[key]
+            return value
 
         logger.debug(f"L1 cache miss: {key}")
 
@@ -48,8 +48,12 @@ class Cache:
         try:
             if data := await self.redis.get(key):
                 value = json.loads(data)
-                # Populate L1 cache on L2 hit
-                self.l1_cache[key] = value
+                # Populate L1 cache on L2 hit (use the remaining TTL from Redis)
+                ttl = await self.redis.ttl(key)  # Get remaining TTL from Redis
+                if ttl > 0:  # Only set if TTL is positive
+                    self.l1_cache.set(key, value, ttl=ttl)
+                else:
+                    self.l1_cache.set(key, value, ttl=settings.cache_default_ttl)
                 logger.debug(f"L2 cache hit: {key}")
                 return value
             logger.debug(f"L2 cache miss: {key}")
@@ -63,9 +67,9 @@ class Cache:
         # Use provided TTL, or fall back to default
         effective_ttl = ttl if ttl is not None else settings.cache_default_ttl
 
-        # Set in L1 cache (TTLCache has its own TTL; we can't override per key)
-        self.l1_cache[key] = value
-        logger.debug(f"L1 cache set: {key}")
+        # Set in L1 cache with the specified TTL
+        self.l1_cache.set(key, value, ttl=effective_ttl)
+        logger.debug(f"L1 cache set: {key} with TTL {effective_ttl} seconds")
 
         # Set in L2 cache (Redis) with the specified TTL
         if not self.redis:
