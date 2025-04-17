@@ -47,7 +47,14 @@ async def caching_middleware(request: Request, call_next, cache: Cache):
         except Exception as e:
             logger.error(f"Cache set error: {str(e)}", exc_info=True)
             pass
-        return JSONResponse(content=origin_data["data"], status_code=200)
+        try:
+            return JSONResponse(content=origin_data["data"], status_code=200)
+        except (KeyError, TypeError) as e:
+            logger.error(f"Invalid origin data structure: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={"error": "Invalid origin response structure"},
+                status_code=500
+            )
 
     logger.warning(f"Origin error: {origin_data['error']}")
     return JSONResponse(
