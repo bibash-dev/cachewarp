@@ -44,6 +44,7 @@ async def caching_middleware(request: Request, call_next, cache: Cache, backgrou
     # Attempt to retrieve from cache
     try:
         cached, is_stale = await cache.get(cache_key)
+        logger.debug(f"Cache get result for {cache_key}: cached={cached is not None}, is_stale={is_stale}")
         if cached is not None:
             logger.info(f"{'Stale ' if is_stale else ''}Cache hit for: {cache_key}")
             if is_stale:
