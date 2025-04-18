@@ -3,7 +3,7 @@ import re
 import asyncio
 from fastapi import Request, BackgroundTasks
 from fastapi.responses import JSONResponse, Response
-from typing import Optional
+from typing import Optional, Callable, Any
 
 from .cache import Cache
 from .origin import fetch_origin
@@ -12,7 +12,12 @@ from src.logging import logger
 from src.config import settings
 
 
-async def caching_middleware(request: Request, call_next, cache: Cache, background_tasks: BackgroundTasks):
+async def caching_middleware(
+    request: Request,
+    call_next: Callable[[Request], Any],
+    cache: Cache,
+    background_tasks: BackgroundTasks,
+) -> Response:
     """Middleware to handle caching of HTTP responses."""
     # Skip caching for specific paths defined in settings
     if request.url.path in settings.cache_skip_paths:
@@ -44,13 +49,19 @@ async def caching_middleware(request: Request, call_next, cache: Cache, backgrou
     # Attempt to retrieve from cache
     try:
         cached, is_stale = await cache.get(cache_key)
-        logger.debug(f"Cache get result for {cache_key}: cached={cached is not None}, is_stale={is_stale}")
+        logger.debug(
+            f"Cache get result for {cache_key}: cached={cached is not None}, is_stale={is_stale}"
+        )
         if cached is not None:
             logger.info(f"{'Stale ' if is_stale else ''}Cache hit for: {cache_key}")
             if is_stale:
                 # Serve stale data and refresh in the background
-                background_tasks.add_task(refresh_cache, cache, cache_key, lock_key, request.url.path)
-                logger.debug(f"Serving stale data and scheduling background refresh for: {cache_key}")
+                background_tasks.add_task(
+                    refresh_cache, cache, cache_key, lock_key, request.url.path
+                )
+                logger.debug(
+                    f"Serving stale data and scheduling background refresh for: {cache_key}"
+                )
             return JSONResponse(content=cached)
         logger.info(f"Cache miss for: {cache_key}")
     except RuntimeError as e:
@@ -58,13 +69,17 @@ async def caching_middleware(request: Request, call_next, cache: Cache, backgrou
         # If there's an error with the cache, proceed to fetch from origin
         return await call_next(request)
     except Exception as e:
-        logger.error(f"Unexpected error during cache retrieval: {str(e)}", exc_info=True)
+        logger.error(
+            f"Unexpected error during cache retrieval: {str(e)}", exc_info=True
+        )
         # If there's an unexpected error with the cache, proceed to fetch from origin
         return await call_next(request)
 
     # Handle cache miss: Acquire lock to prevent cache stampede
     lock_value = await cache.acquire_lock(lock_key, timeout=10)
-    logger.debug(f"Lock acquisition attempt for {lock_key}: acquired={lock_value is not None}")
+    logger.debug(
+        f"Lock acquisition attempt for {lock_key}: acquired={lock_value is not None}"
+    )
     if lock_value:
         try:
             # Double-check cache after acquiring the lock
@@ -91,7 +106,12 @@ async def caching_middleware(request: Request, call_next, cache: Cache, backgrou
         return await fetch_and_return(request, cache, None)
 
 
-async def fetch_and_return(request: Request, cache: Cache, cache_key: Optional[str], client_ttl: Optional[int] = None) -> Response:
+async def fetch_and_return(
+    request: Request,
+    cache: Cache,
+    cache_key: Optional[str],
+    client_ttl: Optional[int] = None,
+) -> Response:
     """Fetch data from the origin, cache the response if cache_key is provided, and return the response."""
     origin_data = await fetch_origin(request.url.path)
     if "error" not in origin_data:
@@ -99,24 +119,35 @@ async def fetch_and_return(request: Request, cache: Cache, cache_key: Optional[s
             content_type = origin_data.get("content_type", "application/json")
             status_code = origin_data.get("status_code", 200)
             # Calculate TTL based on our rules and client's max-age
-            ttl = client_ttl if client_ttl is not None else calculate_ttl(request.url.path, content_type, status_code)
-            logger.info(f"Calculated TTL for {cache_key or request.url.path}: {ttl} seconds")
+            ttl = (
+                client_ttl
+                if client_ttl is not None
+                else calculate_ttl(request.url.path, content_type, status_code)
+            )
+            logger.info(
+                f"Calculated TTL for {cache_key or request.url.path}: {ttl} seconds"
+            )
             # cache_key will be None if Cache-Control header dictated bypassing
             if cache_key and ttl > 0:
                 await cache.set(cache_key, origin_data["data"], ttl=ttl)
                 logger.info(f"Cache set for: {cache_key}")
             return JSONResponse(content=origin_data["data"], status_code=status_code)
         except Exception as e:
-            logger.error(f"Error processing origin response or setting cache: {str(e)}", exc_info=True)
-            return JSONResponse(content={"error": "Invalid origin response"}, status_code=500)
+            logger.error(
+                f"Error processing origin response or setting cache: {str(e)}",
+                exc_info=True,
+            )
+            return JSONResponse(
+                content={"error": "Invalid origin response"}, status_code=500
+            )
     logger.warning(f"Origin error for {request.url.path}: {origin_data['error']}")
     return JSONResponse(
         content=origin_data,
-        status_code=404 if origin_data["error"] == "Not found" else 500
+        status_code=404 if origin_data["error"] == "Not found" else 500,
     )
 
 
-async def refresh_cache(cache: Cache, cache_key: str, lock_key: str, path: str):
+async def refresh_cache(cache: Cache, cache_key: str, lock_key: str, path: str) -> None:
     """Refresh cache in the background."""
     lock_value = await cache.acquire_lock(lock_key, timeout=10)
     if not lock_value:
@@ -131,8 +162,13 @@ async def refresh_cache(cache: Cache, cache_key: str, lock_key: str, path: str):
             await cache.set(cache_key, origin_data["data"], ttl=ttl)
             logger.info(f"Background cache refresh completed for: {cache_key}")
         else:
-            logger.warning(f"Background refresh failed for {path}: {origin_data['error']}")
+            logger.warning(
+                f"Background refresh failed for {path}: {origin_data['error']}"
+            )
     except Exception as e:
-        logger.error(f"Error during background cache refresh for {cache_key}: {str(e)}", exc_info=True)
+        logger.error(
+            f"Error during background cache refresh for {cache_key}: {str(e)}",
+            exc_info=True,
+        )
     finally:
         await cache.release_lock(lock_key, lock_value)

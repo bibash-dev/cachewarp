@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from typing import AsyncIterator, Callable, Any
 
 from fastapi import FastAPI, Request, Response, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -10,10 +11,11 @@ from src.proxy.middleware import caching_middleware
 from src.logging import logger
 
 # Initialize the cache instance
-cache = Cache()
+cache: Cache = Cache()
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Handles application startup and shutdown events."""
     logger.info("Starting CacheWarp application")
     logger.info(f"Redis URL: {settings.redis_url}")
@@ -28,6 +30,7 @@ async def lifespan(app: FastAPI):
     await cache.close()
     logger.info("Shutting down CacheWarp application")
 
+
 app = FastAPI(
     title="CacheWarp",
     lifespan=lifespan,
@@ -35,7 +38,11 @@ app = FastAPI(
 
 
 @app.middleware("http")
-async def apply_caching(request: Request, call_next, background_tasks: BackgroundTasks = BackgroundTasks()):
+async def apply_caching(
+    request: Request,
+    call_next: Callable[[Request], Any],
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+) -> Response:
     """Applies the caching middleware to all HTTP requests.
 
     Utilizes BackgroundTasks for stale-while-revalidate functionality.
@@ -43,37 +50,45 @@ async def apply_caching(request: Request, call_next, background_tasks: Backgroun
     try:
         return await caching_middleware(request, call_next, cache, background_tasks)
     except RuntimeError as e:
-        logger.error(f"Cache runtime error in middleware (e.g., Redis not connected): {str(e)}")
-        return await call_next(request) # Proceed without caching if there's a cache issue
+        logger.error(
+            f"Cache runtime error in middleware (e.g., Redis not connected): {str(e)}"
+        )
+        return await call_next(
+            request
+        )  # Proceed without caching if there's a cache issue
     except Exception as e:
         logger.error(f"Unexpected error in caching middleware: {str(e)}", exc_info=True)
-        return await call_next(request) # Proceed without caching on unexpected error
+        return await call_next(request)  # Proceed without caching on unexpected error
+
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handles all unhandled exceptions."""
-    logger.error(f"Unhandled exception for URL: {request.url} - {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Internal server error"}
+    logger.error(
+        f"Unhandled exception for URL: {request.url} - {str(exc)}", exc_info=True
     )
+    return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     """Handles request validation errors."""
     logger.error(f"Validation error for URL: {request.url} - {exc.errors()}")
     return JSONResponse(
-        status_code=422,
-        content={"error": "Invalid request", "details": exc.errors()}
+        status_code=422, content={"error": "Invalid request", "details": exc.errors()}
     )
 
+
 @app.get("/favicon.ico")
-async def favicon():
+async def favicon() -> Response:
     """Returns a 204 No Content for favicon requests."""
     return Response(status_code=204)  # No Content
 
+
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     """Performs a health check, including Redis connection status."""
     redis_status = "disconnected"
     try:

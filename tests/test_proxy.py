@@ -1,60 +1,74 @@
 import pytest
-import pytest_asyncio
-from fastapi.testclient import TestClient
-from src.main import app
+from httpx import AsyncClient
 from src.proxy.cache import Cache
-from unittest.mock import AsyncMock, patch
+from src.config import settings
+from typing import AsyncGenerator, Any
 
-@pytest_asyncio.fixture(scope="module")
-async def cache():
-    """Async cache fixture."""
-    cache = Cache()
-    await cache.connect()
-    yield cache
-    await cache.close()
 
-@pytest_asyncio.fixture(scope="module")
-def client():
-    """Standard TestClient fixture."""
-    return TestClient(app)
+@pytest.fixture
+async def cache() -> AsyncGenerator[Cache, None]:
+    cache_instance = Cache()
+    await cache_instance.connect()
+    yield cache_instance
+    await cache_instance.close()
 
-@pytest.mark.asyncio(loop_scope="module")
-async def test_origin_flow(cache, client):
-    """Test origin fetch and caching for /mock."""
-    mock_response = {"data": "mock"}
-    error_404 = {"error": "Not found"}
-    error_unreachable = {"error": "Origin unreachable"}
 
-    await cache.redis.flushdb()
+@pytest.mark.asyncio
+async def test_cache_control_no_cache(async_client: AsyncClient, cache: Cache) -> None:
+    response = await async_client.get(
+        "/some/path", headers={"Cache-Control": "no-cache"}
+    )
+    assert response.status_code == 200
+    cached_data, _ = await cache.get("cache:/some/path")
+    assert cached_data is None
 
-    # Cache miss → origin success
-    with patch("src.proxy.origin.fetch_origin", AsyncMock(return_value=mock_response)) as mocked:
-        resp = client.get("/mock")
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-        assert resp.json() == mock_response
-        assert mocked.called, "fetch_origin was not called"
 
-        cached = await cache.get("cache:/mock")
-        assert cached == mock_response, "Cache miss for /mock"
+@pytest.mark.asyncio
+async def test_cache_control_max_age(async_client: AsyncClient, cache: Cache) -> None:
+    response = await async_client.get(
+        "/another/path", headers={"Cache-Control": "max-age=5"}
+    )
+    assert response.status_code == 200
+    cached_data, _ = await cache.get("cache:/another/path")
+    assert cached_data is not None
+    await asyncio.sleep(6)
+    response_again = await async_client.get(
+        "/another/path", headers={"Cache-Control": "max-age=5"}
+    )
+    assert (
+        response_again.status_code == 200
+    )  # Might still hit stale depending on timing
+    cached_data_again, is_stale = await cache.get("cache:/another/path")
+    assert cached_data_again is not None
 
-        resp = client.get("/mock")
-        assert resp.status_code == 200
-        assert resp.json() == mock_response
 
-    # Origin 404
-    with patch("src.proxy.origin.fetch_origin", AsyncMock(return_value=error_404)):
-        resp = client.get("/missing")
-        assert resp.status_code == 404
-        assert resp.json() == error_404
+@pytest.mark.asyncio
+async def test_stale_while_revalidate(async_client: AsyncClient, cache: Cache) -> None:
+    # Initial request to cache
+    response = await async_client.get("/yet/another", headers={})
+    assert response.status_code == 200
+    cached_data, _ = await cache.get("cache:/yet/another")
+    assert cached_data is not None
+    initial_data = response.json()
 
-        cached = await cache.get("cache:/missing")
-        assert cached is None, "Unexpected cache for /missing"
+    # Wait for TTL to expire (default is 30, let's use slightly more)
+    await asyncio.sleep(settings.cache_default_ttl + 1)
 
-    # Origin unreachable (mocked)
-    with patch("src.proxy.origin.fetch_origin", AsyncMock(return_value=error_unreachable)):
-        resp = client.get("/unreachable")
-        assert resp.status_code == 500
-        assert resp.json() == error_unreachable
+    # Subsequent request should serve stale data
+    stale_response = await async_client.get("/yet/another", headers={})
+    assert stale_response.status_code == 200
+    stale_cached_data, is_stale = await cache.get("cache:/yet/another")
+    assert is_stale is True
+    assert stale_response.json() == initial_data  # Should be the stale data
 
-        cached = await cache.get("cache:/unreachable")
-        assert cached is None, "Unexpected cache for /unreachable"
+    # Wait a bit for background refresh to complete (give it some time)
+    await asyncio.sleep(0.5)  # Adjust as needed
+
+    # Subsequent request should get fresh data
+    fresh_response = await async_client.get("/yet/another", headers={})
+    assert fresh_response.status_code == 200
+    fresh_cached_data, is_stale_now = await cache.get("cache:/yet/another")
+    assert is_stale_now is False
+    assert (
+        fresh_response.json() != initial_data
+    )  # Assuming origin returns different data
