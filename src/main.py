@@ -36,7 +36,10 @@ app = FastAPI(
 
 @app.middleware("http")
 async def apply_caching(request: Request, call_next, background_tasks: BackgroundTasks = BackgroundTasks()):
-    """Applies the caching middleware to all HTTP requests."""
+    """Applies the caching middleware to all HTTP requests.
+
+    Utilizes BackgroundTasks for stale-while-revalidate functionality.
+    """
     try:
         return await caching_middleware(request, call_next, cache, background_tasks)
     except RuntimeError as e:

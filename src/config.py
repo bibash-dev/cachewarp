@@ -65,6 +65,13 @@ class Settings(BaseSettings):
         description="TTL in seconds for different HTTP status codes"
     )
 
+    # Offset for stale data TTL (in seconds)
+    stale_ttl_offset: int = Field(
+        default=30,
+        ge=0,
+        description="Additional TTL for stale data in seconds"
+    )
+
     # Configuration settings
     model_config = SettingsConfigDict(
         env_file=".env",
