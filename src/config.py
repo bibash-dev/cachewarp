@@ -6,34 +6,30 @@ from typing import List, Dict
 class Settings(BaseSettings):
     # Redis connection URL
     redis_url: RedisDsn = Field(
-        default="redis://localhost:6379",
-        description="Redis connection URL"
+        default=RedisDsn("redis://localhost:6379"), description="Redis connection URL"
     )
 
     # Origin API URL
     origin_url: str = Field(
-        default="http://localhost:8080",
-        description="API origin URL"
+        default="http://localhost:8080", description="API origin URL"
     )
 
     # Default cache TTL in seconds
     cache_default_ttl: int = Field(
-        default=30,
-        ge=1,
-        description="Default Time-to-Live for cache in seconds"
+        default=30, ge=1, description="Default Time-to-Live for cache in seconds"
     )
 
     # Paths to skip caching
     cache_skip_paths: List[str] = Field(
         default=["/favicon.ico", "/health", "/metrics"],
-        description="URL paths to bypass caching"
+        description="URL paths to bypass caching",
     )
 
     # L1 cache maximum size
     l1_cache_maxsize: int = Field(
         default=1000,
         ge=1,
-        description="Maximum number of items in the L1 in-memory cache"
+        description="Maximum number of items in the L1 in-memory cache",
     )
 
     # Dynamic TTL rules based on content type
@@ -43,7 +39,7 @@ class Settings(BaseSettings):
             "image/png": 300,
             "text/html": 60,
         },
-        description="TTL in seconds for different content types"
+        description="TTL in seconds for different content types",
     )
 
     # Dynamic TTL rules based on path patterns
@@ -52,24 +48,18 @@ class Settings(BaseSettings):
             {"pattern": "/health", "ttl": 5},
             {"pattern": "/static/*", "ttl": 600},
         ],
-        description="TTL in seconds for specific path patterns"
+        description="TTL in seconds for specific path patterns",
     )
 
     # Dynamic TTL rules based on HTTP status codes
     ttl_by_status_code: Dict[int, int] = Field(
-        default={
-            200: 5,
-            404: 10,
-            500: 0
-        },
-        description="TTL in seconds for different HTTP status codes"
+        default={200: 5, 404: 10, 500: 0},
+        description="TTL in seconds for different HTTP status codes",
     )
 
     # Offset for stale data TTL (in seconds)
     stale_ttl_offset: int = Field(
-        default=30,
-        ge=0,
-        description="Additional TTL for stale data in seconds"
+        default=30, ge=0, description="Additional TTL for stale data in seconds"
     )
 
     # Configuration settings
@@ -78,9 +68,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True,
         validate_assignment=True,
-        extra="allow"
+        extra="allow",
     )
 
 
-# Initialize the settings instance
 settings = Settings()

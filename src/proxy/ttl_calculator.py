@@ -1,26 +1,44 @@
-from typing import Optional
+from typing import Optional, Any
 from fnmatch import fnmatch
+from typing import Dict, List, Union
 
 from src.config import settings
 from src.logging import logger
 
 
-def calculate_ttl(path: str, content_type: Optional[str], status_code: Optional[int] = None) -> int:
+def calculate_ttl(
+    path: str, content_type: Optional[str], status_code: Optional[int] = None
+) -> int:
     """
     Calculate the TTL for a cache entry based on request path, content type, and status code.
     Rules are checked in the following order: path patterns, status codes, content types, default.
     """
-    logger.debug(f"Calculating TTL for path: '{path}', content_type: '{content_type}', status_code: '{status_code}'")
+    logger.debug(
+        f"Calculating TTL for path: '{path}', content_type: '{content_type}', status_code: '{status_code}'"
+    )
 
     # Step 1: Check path-based TTL rules (supports wildcards)
     logger.debug("Checking TTL rules based on path patterns...")
     for rule in settings.ttl_by_path_pattern:
-        pattern = rule["pattern"]
-        ttl = rule["ttl"]
+        pattern: str = str(rule["pattern"])
+        ttl_value: Union[str, int] = rule["ttl"]
+        if isinstance(ttl_value, int):
+            ttl = ttl_value
+        else:
+            try:
+                ttl = int(ttl_value)
+            except ValueError:
+                logger.warning(
+                    f"Invalid TTL value '{ttl_value}' for pattern '{pattern}', using default."
+                )
+                continue
+
         if pattern.endswith("/*"):
             base_pattern = pattern[:-2]  # Remove "/*"
             if path.startswith(base_pattern):
-                logger.debug(f"TTL matched wildcard path pattern '{pattern}': {ttl} seconds")
+                logger.debug(
+                    f"TTL matched wildcard path pattern '{pattern}': {ttl} seconds"
+                )
                 return ttl
         elif fnmatch(path, pattern):
             logger.debug(f"TTL matched path pattern '{pattern}': {ttl} seconds")
@@ -41,5 +59,7 @@ def calculate_ttl(path: str, content_type: Optional[str], status_code: Optional[
         return ttl
 
     # Step 4: Fallback to default TTL
-    logger.debug(f"No specific TTL rules matched, using default TTL: {settings.cache_default_ttl} seconds")
+    logger.debug(
+        f"No specific TTL rules matched, using default TTL: {settings.cache_default_ttl} seconds"
+    )
     return settings.cache_default_ttl

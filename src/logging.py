@@ -4,6 +4,7 @@ import json
 from typing import Dict, Any
 from datetime import datetime, timezone
 
+
 # Custom JSON formatter for structured logging
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -20,8 +21,9 @@ class JsonFormatter(logging.Formatter):
             log_record["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_record)
 
+
 # Configure the root logger
-def setup_logging():
+def setup_logging() -> logging.Logger:
     logger = logging.getLogger("cachewarp")
     logger.setLevel(logging.DEBUG)  # In production, consider setting to INFO
 
@@ -34,6 +36,7 @@ def setup_logging():
     logger.addHandler(console_handler)
 
     return logger
+
 
 # Initialize the logger
 logger = setup_logging()

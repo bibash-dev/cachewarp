@@ -1,9 +1,29 @@
 [tool.black]
 line-length = 88
+target-version = ['py38', 'py39', 'py310']
+include = '\.pyi?$|\.ipynb$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
 
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unreachable = true
+# plugins = ["fastapi.plugin"] # Uncomment when using FastAPI plugin
 
 [tool.pytest]
 addopts = "-v --asyncio"
@@ -11,4 +31,11 @@ addopts = "-v --asyncio"
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "module"
 asyncio_mode = "auto"
-
+markers = [
+    "integration: mark test as integration test.",
+    "slow: mark test as slow to run.",
+]
+# filterwarnings = [ # Uncomment and configure as needed
+#     "ignore::DeprecationWarning",
+#     "ignore:Some specific warning message:UserWarning",
+# ]
