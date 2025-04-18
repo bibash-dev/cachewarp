@@ -92,6 +92,15 @@ class Cache:
                     logger.error(f"Invalid JSON in Redis for key {key}, clearing")
                     await self.redis.delete(key)
                     return None, False
+
+            # Check for stale data in separate key
+            stale_key = f"stale:{key}"
+            stale_data = await self.redis.get(stale_key)
+            if stale_data:
+                value = json.loads(stale_data)
+                logger.debug(f"Stale cache hit: {stale_key}")
+                return value, True
+
             logger.debug(f"L2 cache miss: {key}")
             return None, False
         except ConnectionError as e:
@@ -120,12 +129,15 @@ class Cache:
             logger.error("Redis not connected")
             raise RuntimeError("Redis not connected") # Raise a specific error if Redis isn't available
         try:
-            # Store value with a timestamp and original TTL for staleness check
+            # Store fresh data
             data = {"value": json.dumps(value), "set_time": time.time(), "ttl": effective_ttl}
-            # Add a small buffer to the Redis TTL to account for potential clock drift
-            await self.redis.setex(key, int(effective_ttl + 10), json.dumps(data))
+            await self.redis.setex(key, int(effective_ttl), json.dumps(data))
+            # Store stale data in a separate key with longer TTL
+            stale_key = f"stale:{key}"
+            await self.redis.setex(stale_key, int(effective_ttl + 30), json.dumps(value))  # Keep stale for 30 seconds
             redis_ttl = await self.redis.ttl(key)
-            logger.debug(f"L2 cache set: {key} with TTL {int(effective_ttl + 10)} seconds, actual Redis TTL={redis_ttl}")
+            logger.debug(f"L2 cache set: {key} with TTL {int(effective_ttl)} seconds, actual Redis TTL={redis_ttl}")
+            logger.debug(f"Stale data set: {stale_key} with TTL {int(effective_ttl + 30)} seconds")
         except ConnectionError as e:
             logger.error(f"Redis connection error during set for key {key}: {str(e)}", exc_info=True)
         except TimeoutError as e:
