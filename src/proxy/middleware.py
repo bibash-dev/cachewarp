@@ -64,6 +64,7 @@ async def caching_middleware(request: Request, call_next, cache: Cache, backgrou
 
     # Handle cache miss: Acquire lock to prevent cache stampede
     lock_value = await cache.acquire_lock(lock_key, timeout=10)
+    logger.debug(f"Lock acquisition attempt for {lock_key}: acquired={lock_value is not None}")
     if lock_value:
         try:
             # Double-check cache after acquiring the lock
@@ -100,6 +101,7 @@ async def fetch_and_return(request: Request, cache: Cache, cache_key: Optional[s
             # Calculate TTL based on our rules and client's max-age
             ttl = client_ttl if client_ttl is not None else calculate_ttl(request.url.path, content_type, status_code)
             logger.info(f"Calculated TTL for {cache_key or request.url.path}: {ttl} seconds")
+            # cache_key will be None if Cache-Control header dictated bypassing
             if cache_key and ttl > 0:
                 await cache.set(cache_key, origin_data["data"], ttl=ttl)
                 logger.info(f"Cache set for: {cache_key}")

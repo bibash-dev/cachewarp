@@ -93,7 +93,7 @@ class Cache:
                     await self.redis.delete(key)
                     return None, False
 
-            # Check for stale data in separate key
+            # Check for stale data in separate key (after a cache miss in the fresh key)
             stale_key = f"stale:{key}"
             stale_data = await self.redis.get(stale_key)
             if stale_data:
@@ -132,12 +132,12 @@ class Cache:
             # Store fresh data
             data = {"value": json.dumps(value), "set_time": time.time(), "ttl": effective_ttl}
             await self.redis.setex(key, int(effective_ttl), json.dumps(data))
-            # Store stale data in a separate key with longer TTL
+            # Store stale data in a separate key with a longer TTL
             stale_key = f"stale:{key}"
-            await self.redis.setex(stale_key, int(effective_ttl + 30), json.dumps(value))  # Keep stale for 30 seconds
+            await self.redis.setex(stale_key, int(effective_ttl + settings.stale_ttl_offset), json.dumps(value))
             redis_ttl = await self.redis.ttl(key)
             logger.debug(f"L2 cache set: {key} with TTL {int(effective_ttl)} seconds, actual Redis TTL={redis_ttl}")
-            logger.debug(f"Stale data set: {stale_key} with TTL {int(effective_ttl + 30)} seconds")
+            logger.debug(f"Stale data set: {stale_key} with TTL {int(effective_ttl + settings.stale_ttl_offset)} seconds")
         except ConnectionError as e:
             logger.error(f"Redis connection error during set for key {key}: {str(e)}", exc_info=True)
         except TimeoutError as e:
