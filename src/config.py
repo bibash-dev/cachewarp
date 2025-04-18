@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, HttpUrl, RedisDsn
+from pydantic import Field, RedisDsn
 from typing import List, Dict
 
 
@@ -19,8 +19,14 @@ class Settings(BaseSettings):
     # Default cache TTL in seconds
     cache_default_ttl: int = Field(
         default=30,
-        ge=1,  # Minimum value constraint
+        ge=1,
         description="Default Time-to-Live for cache in seconds"
+    )
+
+    # Paths to skip caching
+    cache_skip_paths: List[str] = Field(
+        default=["/favicon.ico", "/health", "/metrics"],
+        description="URL paths to bypass caching"
     )
 
     # L1 cache maximum size
@@ -33,14 +39,14 @@ class Settings(BaseSettings):
     # Dynamic TTL rules based on content type
     ttl_by_content_type: Dict[str, int] = Field(
         default={
-            "application/json": 30,  # JSON responses (e.g., API data)
-            "image/png": 300,  # Images (longer TTL due to static nature)
-            "text/html": 60,  # HTML pages
+            "application/json": 30,
+            "image/png": 300,
+            "text/html": 60,
         },
         description="TTL in seconds for different content types"
     )
 
-    # Dynamic TTL rules based on path patterns (e.g., /health, /static/*)
+    # Dynamic TTL rules based on path patterns
     ttl_by_path_pattern: List[Dict[str, str | int]] = Field(
         default=[
             {"pattern": "/health", "ttl": 5},
@@ -49,13 +55,23 @@ class Settings(BaseSettings):
         description="TTL in seconds for specific path patterns"
     )
 
+    # Dynamic TTL rules based on HTTP status codes
+    ttl_by_status_code: Dict[int, int] = Field(
+        default={
+            200: 5,
+            404: 10,
+            500: 0
+        },
+        description="TTL in seconds for different HTTP status codes"
+    )
+
     # Configuration settings
     model_config = SettingsConfigDict(
-        env_file=".env",  # Use .env file for environment variables
-        env_file_encoding="utf-8",  # Define encoding for the env file
-        case_sensitive=True,  # Case-sensitive environment variables
-        validate_assignment=True,  # Validate fields during runtime assignments
-        extra="allow"  # Allow additional fields not defined in the model
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        validate_assignment=True,
+        extra="allow"
     )
 
 

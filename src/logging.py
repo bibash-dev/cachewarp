@@ -2,13 +2,13 @@ import logging
 import sys
 import json
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Custom JSON formatter for structured logging
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_record: Dict[str, Any] = {
-            "timestamp": datetime.utcfromtimestamp(record.created).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "name": record.name,
             "message": record.getMessage(),
@@ -23,12 +23,12 @@ class JsonFormatter(logging.Formatter):
 # Configure the root logger
 def setup_logging():
     logger = logging.getLogger("cachewarp")
-    logger.setLevel(logging.DEBUG)  # in prod, change into to INFO
+    logger.setLevel(logging.DEBUG)  # In production, consider setting to INFO
 
-    # Clear any existing handlers to avoid duplicates
+    # Clear any existing handlers to avoid duplicate logs
     logger.handlers.clear()
 
-    # Create a console handler with JSON formatting
+    # Create a console handler that outputs logs to stdout with JSON formatting
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(JsonFormatter())
     logger.addHandler(console_handler)
