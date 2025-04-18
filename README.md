@@ -56,8 +56,8 @@ CacheWarp solves these problems by:
 - [ ] Docker environment for local development
 
 ### Week 2: Advanced Caching Features
-- [ ] In-memory L1 cache implementation
-- [ ] Dynamic TTL calculation logic
+- [x] In-memory L1 cache implementation
+- [x] Dynamic TTL calculation logic
 - [ ] Request coalescing and deduplication
 - [ ] Cache-Control header integration
 - [ ] Circuit breaker implementation
