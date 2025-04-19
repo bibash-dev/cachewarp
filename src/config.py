@@ -62,6 +62,18 @@ class Settings(BaseSettings):
         default=30, ge=0, description="Additional TTL for stale data in seconds"
     )
 
+    # --- Circuit Breaker Configuration ---
+    circuit_breaker_failure_threshold: int = Field(
+        default=3,
+        ge=1,
+        description="Number of failures before tripping the circuit breaker"
+    )
+    circuit_breaker_recovery_timeout: int = Field(
+        default=30,
+        ge=1,
+        description="Time in seconds to wait before attempting recovery"
+    )
+
     # Configuration settings
     model_config = SettingsConfigDict(
         env_file=".env",
