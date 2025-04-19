@@ -1,7 +1,7 @@
 import json
 import uuid
 import time
-from typing import Optional, Any, Tuple
+from typing import Optional, Any, Tuple, Dict
 from redis.asyncio import Redis
 from cacheout import Cache as CacheOut
 from redis.exceptions import ConnectionError, TimeoutError
@@ -20,14 +20,21 @@ end
 
 
 class Cache:
+    """
+    A two-tiered cache system with L1 (in-memory) and L2 (Redis) layers.
+
+    It supports setting, getting, and deleting cache entries with optional TTL,
+    as well as distributed locks for preventing cache stampedes.
+    """
     def __init__(self) -> None:
+        """Initializes the Cache with L1 cache and Redis client."""
         self.redis: Optional[Redis] = None
         self.l1_cache = CacheOut(
             maxsize=settings.l1_cache_maxsize,
         )
         self._release_lock_sha: Optional[str] = None
         # Dictionary to store expiration times for L1 cache entries
-        self._l1_expirations: dict[str, float] = {}
+        self._l1_expirations: Dict[str, float] = {}
 
     async def connect(self) -> None:
         """Establish a connection to the Redis server."""
@@ -36,7 +43,7 @@ class Cache:
             self.redis = await Redis.from_url(
                 str(settings.redis_url), max_connections=20, decode_responses=True
             )
-            # Load the safe release lock script into Redis
+            # Load the safe release lock script into Redis for atomic lock release
             if self.redis:
                 self._release_lock_sha = await self.redis.script_load(
                     SAFE_RELEASE_LOCK_SCRIPT
@@ -66,7 +73,13 @@ class Cache:
             logger.info("Redis connection closed")
 
     async def get(self, key: str) -> Tuple[Optional[Any], bool]:
-        """Retrieve the value for the given key from L1 or L2 cache, with staleness flag."""
+        """
+        Retrieve the value for the given key, first checking L1 then L2 cache.
+
+        Returns:
+            Tuple[Optional[Any], bool]: The cached value (if found) and a boolean
+                                         indicating if the value was stale.
+        """
         # 1. Check L1 cache (fast, in-memory)
         if value := self.l1_cache.get(key):
             # Calculate remaining TTL using stored expiration time
@@ -143,7 +156,15 @@ class Cache:
             return None, False
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        """Set the value for a given key in both L1 and L2 caches with an optional TTL."""
+        """
+        Set the value for a given key in both L1 and L2 caches with an optional TTL.
+
+        Args:
+            key (str): The key to store the value under.
+            value (Any): The value to store.
+            ttl (Optional[int]): Time-to-live for the key in seconds. If None, the
+                                 default TTL from settings is used.
+        """
         effective_ttl = ttl if ttl is not None else settings.cache_default_ttl
         if effective_ttl <= 0:
             logger.debug(f"Skipping cache set for {key} due to non-positive TTL")
@@ -161,7 +182,7 @@ class Cache:
                 "Redis not connected"
             )  # Raise a specific error if Redis isn't available
         try:
-            # Store fresh data
+            # Store fresh data with metadata (set time and original TTL)
             data = {
                 "value": json.dumps(value),
                 "set_time": time.time(),
@@ -195,7 +216,16 @@ class Cache:
             logger.error(f"Redis set error for key {key}: {str(e)}", exc_info=True)
 
     async def acquire_lock(self, lock_key: str, timeout: int = 10) -> Optional[str]:
-        """Attempt to acquire a Redis lock for the given key."""
+        """
+        Attempt to acquire a Redis lock for the given key.
+
+        Args:
+            lock_key (str): The key to use for the lock.
+            timeout (int): The lock expiration time in seconds.
+
+        Returns:
+            Optional[str]: The lock value if acquired, None otherwise.
+        """
         if not self.redis:
             logger.error("Redis not connected")
             raise RuntimeError(
@@ -227,7 +257,16 @@ class Cache:
             return None
 
     async def release_lock(self, lock_key: str, lock_value: str) -> bool:
-        """Release a Redis lock if the value matches using a Lua script for atomicity."""
+        """
+        Release a Redis lock if the value matches using a Lua script for atomicity.
+
+        Args:
+            lock_key (str): The key of the lock to release.
+            lock_value (str): The value that was used to acquire the lock.
+
+        Returns:
+            bool: True if the lock was successfully released, False otherwise.
+        """
         if not self.redis or not self._release_lock_sha:
             logger.error("Redis not connected or release script not loaded")
             return False
