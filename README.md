@@ -8,7 +8,6 @@ CacheWarp is an intelligent reverse proxy that sits between clients and API serv
 
 ![CacheWarp Architecture Diagram](docs/architecture-diagram.png)
 
-
 ## Problem & Solution
 Modern applications face several challenges with API performance:
 - 40% of API calls are redundant (according to industry research)
@@ -53,14 +52,14 @@ CacheWarp solves these problems by:
 - [x] Basic FastAPI application with Redis integration
 - [x] Core caching middleware implementation
 - [ ] Unit tests and error handling
-- [ ] Docker environment for local development
+- [x] Docker environment for local development
 
 ### Week 2: Advanced Caching Features
 - [x] In-memory L1 cache implementation
 - [x] Dynamic TTL calculation logic
-- [ ] Request coalescing and deduplication
-- [ ] Cache-Control header integration
-- [ ] Circuit breaker implementation
+- [x] Request coalescing and deduplication
+- [x] Cache-Control header integration
+- [x] Circuit breaker implementation
 
 ### Week 3: Observability & Performance
 - [ ] Prometheus metrics collection
@@ -93,3 +92,14 @@ pip install -r requirements.txt
 
 # Run the application
 uvicorn src.main:app --reload
+```
+
+## Future Improvements (Inspired by Segcache)
+
+Future enhancements based on ["Segcache: a memory-efficient and scalable in-memory key-value cache for small objects"](https://www.usenix.org/conference/nsdi21/presentation/yang-juncheng):
+- Proactive expiration using TTL-indexed segments for bulk removal.
+- Reduce per-object metadata to ~5 bytes with shared segment headers.
+- Eliminate memory fragmentation with fixed-size segments in L1 cache.
+- Merge-based eviction to retain high-frequency objects and reduce miss ratios.
+- Improve scalability with thread-local segments and minimal locking.
+- Add a 1-byte frequency counter for better eviction decisions.
