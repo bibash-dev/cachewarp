@@ -1,4 +1,20 @@
 services:
+  app:
+    build:
+      context: ../
+      dockerfile: ./docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      origin:
+        condition: service_started
+    volumes:
+      - ../:/app
+
   redis:
     image: redis:7-alpine
     ports:
@@ -8,6 +24,42 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
+      timeout: 3s
+      retries: 5
+
+  origin:
+    image: python:3.11-slim-bullseye
+    command: ["python", "-m", "http.server", "8080"]
+    working_dir: /data
+    volumes:
+      - ./static:/data  # Mount a directory with mock data
+    ports:
+      - "8080:8080"  # Expose port 8080 for external access (optional)
+
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    depends_on:
+      - app
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 
 volumes:
   redis_data:
+  grafana_data:
