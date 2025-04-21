@@ -8,7 +8,11 @@ from redis.exceptions import ConnectionError, TimeoutError
 
 from src.config import settings
 from src.logging import logger
-from src.proxy.metrics import record_cache_hit, record_cache_miss, record_redis_error  # Import metrics
+from src.proxy.metrics import (
+    record_cache_hit,
+    record_cache_miss,
+    record_redis_error,
+)
 
 # Lua script for safely releasing a distributed lock in Redis.
 # This script checks if the lock's current value matches the value provided during release.
@@ -21,6 +25,7 @@ else
 end
 """
 
+
 class Cache:
     """
     A two-tiered caching system designed for performance and resilience.
@@ -29,6 +34,7 @@ class Cache:
     cache for a larger, distributed storage that persists across instances.
     The system also includes distributed locks to prevent cache stampedes.
     """
+
     def __init__(self) -> None:
         """
         Initializes the Cache instance.
@@ -42,8 +48,12 @@ class Cache:
         self.l1_cache = CacheOut(
             maxsize=settings.l1_cache_maxsize,  # Maximum number of items in L1 cache (from settings)
         )
-        self._release_lock_sha: Optional[str] = None  # SHA of the loaded safe release lock Lua script
-        self._l1_expirations: Dict[str, float] = {}  # Stores the absolute expiration timestamp for L1 entries
+        self._release_lock_sha: Optional[str] = (
+            None  # SHA of the loaded safe release lock Lua script
+        )
+        self._l1_expirations: Dict[str, float] = (
+            {}
+        )  # Stores the absolute expiration timestamp for L1 entries
 
     async def connect(self) -> None:
         """
@@ -74,14 +84,18 @@ class Cache:
                 logger.error("Redis client is None after connection attempt.")
         except ConnectionError as e:
             logger.error(f"Error connecting to Redis: {e}")
-            record_redis_error("ConnectionError")  # Record the Redis connection error metric
+            record_redis_error(
+                "ConnectionError"
+            )  # Record the Redis connection error metric
             self.redis = None
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred during Redis connection: {e}",
                 exc_info=True,  # Include traceback for detailed error information
             )
-            record_redis_error("UnexpectedError")  # Record an unexpected Redis error metric
+            record_redis_error(
+                "UnexpectedError"
+            )  # Record an unexpected Redis error metric
             self.redis = None
 
     async def close(self) -> None:
@@ -133,19 +147,33 @@ class Cache:
             if data:
                 try:
                     parsed = json.loads(data)  # Parse the outer JSON structure
-                    value = json.loads(parsed["value"])  # Parse the actual cached value (which was JSON-encoded)
-                    set_time = parsed["set_time"]  # Timestamp when the value was set in Redis
+                    value = json.loads(
+                        parsed["value"]
+                    )  # Parse the actual cached value (which was JSON-encoded)
+                    set_time = parsed[
+                        "set_time"
+                    ]  # Timestamp when the value was set in Redis
                     original_ttl = parsed["ttl"]  # Original TTL set for the value
-                    elapsed = time.time() - set_time  # Time elapsed since the value was cached
-                    is_stale = elapsed > original_ttl  # Check if the cached data has exceeded its original TTL
+                    elapsed = (
+                        time.time() - set_time
+                    )  # Time elapsed since the value was cached
+                    is_stale = (
+                        elapsed > original_ttl
+                    )  # Check if the cached data has exceeded its original TTL
                     logger.debug(
                         f"Cache {key}: set_time={set_time}, ttl={original_ttl}, elapsed={elapsed}, is_stale={is_stale}"
                     )
                     if not is_stale:
                         # If the data from L2 is not stale, populate the L1 cache
-                        l1_ttl = max(original_ttl - elapsed, 1) if original_ttl > elapsed else 1
+                        l1_ttl = (
+                            max(original_ttl - elapsed, 1)
+                            if original_ttl > elapsed
+                            else 1
+                        )
                         self.l1_cache.set(key, value, ttl=l1_ttl)
-                        self._l1_expirations[key] = time.time() + l1_ttl  # Store the absolute expiration time
+                        self._l1_expirations[key] = (
+                            time.time() + l1_ttl
+                        )  # Store the absolute expiration time
                         logger.debug(
                             f"L2 cache hit: {key}, populated L1 with TTL {l1_ttl}"
                         )
@@ -164,7 +192,9 @@ class Cache:
             if stale_data:
                 value = json.loads(stale_data)  # Parse the stale JSON data
                 logger.debug(f"Stale cache hit: {stale_key}")
-                record_cache_hit("L2")  # Increment the L2 cache hit metric (for stale data)
+                record_cache_hit(
+                    "L2"
+                )  # Increment the L2 cache hit metric (for stale data)
                 return value, True  # Indicate that the data is stale
 
             logger.debug(f"L2 cache miss: {key}")
@@ -175,7 +205,9 @@ class Cache:
             logger.error(
                 f"Redis connection error for key {key}: {str(e)}", exc_info=True
             )
-            record_redis_error("ConnectionError")  # Record Redis connection error metric
+            record_redis_error(
+                "ConnectionError"
+            )  # Record Redis connection error metric
             return None, False
         except TimeoutError as e:
             logger.warning(
@@ -185,7 +217,9 @@ class Cache:
             return None, False
         except Exception as e:
             logger.error(f"Redis get error for key {key}: {str(e)}", exc_info=True)
-            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
+            record_redis_error(
+                "UnexpectedError"
+            )  # Record unexpected Redis error metric
             return None, False
 
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
@@ -208,7 +242,9 @@ class Cache:
 
         # 1. Set in L1 cache (in-memory)
         self.l1_cache.set(key, value, ttl=effective_ttl)
-        self._l1_expirations[key] = time.time() + effective_ttl  # Store the absolute expiration time
+        self._l1_expirations[key] = (
+            time.time() + effective_ttl
+        )  # Store the absolute expiration time
         logger.debug(f"L1 cache set: {key} with TTL {effective_ttl} seconds")
 
         # 2. Set in L2 cache (Redis)
@@ -227,10 +263,14 @@ class Cache:
             stale_key = f"stale:{key}"
             await self.redis.setex(
                 stale_key,
-                int(effective_ttl + settings.stale_ttl_offset),  # Longer TTL for stale data
+                int(
+                    effective_ttl + settings.stale_ttl_offset
+                ),  # Longer TTL for stale data
                 json.dumps(value),
             )
-            redis_ttl = await self.redis.ttl(key)  # Get the actual TTL set in Redis for debugging
+            redis_ttl = await self.redis.ttl(
+                key
+            )  # Get the actual TTL set in Redis for debugging
             logger.debug(
                 f"L2 cache set: {key} with TTL {int(effective_ttl)} seconds, actual Redis TTL={redis_ttl}"
             )
@@ -242,7 +282,9 @@ class Cache:
                 f"Redis connection error during set for key {key}: {str(e)}",
                 exc_info=True,
             )
-            record_redis_error("ConnectionError")  # Record Redis connection error metric
+            record_redis_error(
+                "ConnectionError"
+            )  # Record Redis connection error metric
         except TimeoutError as e:
             logger.warning(
                 f"Redis timeout error during set for key {key}: {str(e)}", exc_info=True
@@ -250,7 +292,9 @@ class Cache:
             record_redis_error("TimeoutError")  # Record Redis timeout error metric
         except Exception as e:
             logger.error(f"Redis set error for key {key}: {str(e)}", exc_info=True)
-            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
+            record_redis_error(
+                "UnexpectedError"
+            )  # Record unexpected Redis error metric
 
     async def acquire_lock(self, lock_key: str, timeout: int = 10) -> Optional[str]:
         """
@@ -285,7 +329,9 @@ class Cache:
                 f"Redis connection error acquiring lock {lock_key}: {str(e)}",
                 exc_info=True,
             )
-            record_redis_error("ConnectionError")  # Record Redis connection error metric
+            record_redis_error(
+                "ConnectionError"
+            )  # Record Redis connection error metric
             return None
         except TimeoutError as e:
             logger.warning(
@@ -296,7 +342,9 @@ class Cache:
             return None
         except Exception as e:
             logger.error(f"Error acquiring lock {lock_key}: {str(e)}", exc_info=True)
-            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
+            record_redis_error(
+                "UnexpectedError"
+            )  # Record unexpected Redis error metric
             return None
 
     async def release_lock(self, lock_key: str, lock_value: str) -> bool:
@@ -338,7 +386,9 @@ class Cache:
                 f"Redis connection error releasing lock {lock_key}: {str(e)}",
                 exc_info=True,
             )
-            record_redis_error("ConnectionError")  # Record Redis connection error metric
+            record_redis_error(
+                "ConnectionError"
+            )  # Record Redis connection error metric
             return False
         except TimeoutError as e:
             logger.warning(
@@ -349,5 +399,7 @@ class Cache:
             return False
         except Exception as e:
             logger.error(f"Error releasing lock {lock_key}: {str(e)}", exc_info=True)
-            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
+            record_redis_error(
+                "UnexpectedError"
+            )  # Record unexpected Redis error metric
             return False

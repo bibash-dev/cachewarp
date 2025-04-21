@@ -39,8 +39,12 @@ def calculate_ttl(
     # --- Step 1: Check TTL rules based on defined path patterns ---
     logger.debug("Checking TTL rules based on path patterns...")
     for rule in settings.ttl_by_path_pattern:
-        pattern: str = str(rule["pattern"])  # The wildcard pattern to match against the path
-        ttl_value: Union[str, int] = rule["ttl"]  # The TTL value associated with the pattern
+        pattern: str = str(
+            rule["pattern"]
+        )  # The wildcard pattern to match against the path
+        ttl_value: Union[str, int] = rule[
+            "ttl"
+        ]  # The TTL value associated with the pattern
 
         # Ensure the TTL value is an integer
         if isinstance(ttl_value, int):
@@ -70,14 +74,18 @@ def calculate_ttl(
     # --- Step 2: Check TTL rules based on HTTP status codes ---
     logger.debug("Checking TTL rules based on status code...")
     if status_code is not None and status_code in settings.ttl_by_status_code:
-        ttl = settings.ttl_by_status_code[status_code]  # Retrieve TTL for the given status code
+        ttl = settings.ttl_by_status_code[
+            status_code
+        ]  # Retrieve TTL for the given status code
         logger.debug(f"TTL matched status code '{status_code}': {ttl} seconds")
         return ttl  # Return the TTL if the status code matches a defined rule
 
     # --- Step 3: Check TTL rules based on content type ---
     logger.debug("Checking TTL rules based on content type...")
     if content_type is not None and content_type in settings.ttl_by_content_type:
-        ttl = settings.ttl_by_content_type[content_type]  # Retrieve TTL for the given content type
+        ttl = settings.ttl_by_content_type[
+            content_type
+        ]  # Retrieve TTL for the given content type
         logger.debug(f"TTL matched content type '{content_type}': {ttl} seconds")
         return ttl  # Return the TTL if the content type matches a defined rule
 
@@ -85,4 +93,6 @@ def calculate_ttl(
     logger.debug(
         f"No specific TTL rules matched, using default TTL: {settings.cache_default_ttl} seconds"
     )
-    return settings.cache_default_ttl  # Return the default TTL defined in the application settings
+    return (
+        settings.cache_default_ttl
+    )  # Return the default TTL defined in the application settings

@@ -2,9 +2,15 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Callable, Any
 
 from fastapi import FastAPI, Request, Response, BackgroundTasks
-from fastapi.responses import JSONResponse, PlainTextResponse  # Added for metrics endpoint
+from fastapi.responses import (
+    JSONResponse,
+    PlainTextResponse,
+)  # Added for metrics endpoint
 from fastapi.exceptions import RequestValidationError
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST  # Import Prometheus utilities
+from prometheus_client import (
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)  # Import Prometheus utilities
 
 from src.config import settings
 from src.proxy.cache import Cache
@@ -14,6 +20,7 @@ from src.logging import logger
 
 # Initialize the cache instance
 cache: Cache = Cache()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -36,10 +43,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await cache.close()  # Close the Redis connection on shutdown
     logger.info("Shutting down CacheWarp application")
 
+
 app = FastAPI(
     title="CacheWarp",
     lifespan=lifespan,  # Integrate the lifespan context manager for startup and shutdown
 )
+
 
 @app.middleware("http")
 async def apply_caching(
@@ -56,7 +65,9 @@ async def apply_caching(
     for the stale while revalidate caching strategy.
     """
     try:
-        return await caching_middleware(request, call_next, cache, background_tasks)  # Delegate caching logic to the middleware
+        return await caching_middleware(
+            request, call_next, cache, background_tasks
+        )  # Delegate caching logic to the middleware
     except RuntimeError as e:
         logger.error(
             f"Cache runtime error in middleware (e.g., Redis not connected): {str(e)}"
@@ -67,6 +78,7 @@ async def apply_caching(
     except Exception as e:
         logger.error(f"Unexpected error in caching middleware: {str(e)}", exc_info=True)
         return await call_next(request)  # Proceed without caching on unexpected error
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -80,6 +92,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         f"Unhandled exception for URL: {request.url} - {str(exc)}", exc_info=True
     )
     return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(
@@ -96,6 +109,7 @@ async def validation_exception_handler(
         status_code=422, content={"error": "Invalid request", "details": exc.errors()}
     )
 
+
 @app.get("/metrics")
 async def metrics() -> Response:
     """
@@ -106,14 +120,14 @@ async def metrics() -> Response:
     try:
         return PlainTextResponse(
             content=generate_latest(),  # Generate the latest metrics data
-            media_type=CONTENT_TYPE_LATEST  # Set the correct content type for Prometheus
+            media_type=CONTENT_TYPE_LATEST,  # Set the correct content type for Prometheus
         )
     except Exception as e:
         logger.error(f"Error generating Prometheus metrics: {str(e)}", exc_info=True)
         return JSONResponse(
-            status_code=500,
-            content={"error": "Failed to generate metrics"}
+            status_code=500, content={"error": "Failed to generate metrics"}
         )
+
 
 @app.get("/favicon.ico")
 async def favicon() -> Response:
@@ -123,6 +137,7 @@ async def favicon() -> Response:
     Browsers often automatically request this file, and we can safely ignore it.
     """
     return Response(status_code=204)  # No Content
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:

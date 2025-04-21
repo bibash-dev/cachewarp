@@ -14,6 +14,7 @@ class JsonFormatter(logging.Formatter):
     level, logger name, message, pathname, and line number. If exception
     information is present, it's also included in the JSON output.
     """
+
     def format(self, record: logging.LogRecord) -> str:
         """
         Formats a log record into a JSON string.

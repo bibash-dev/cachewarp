@@ -11,7 +11,7 @@ from src.logging import logger
 cache_hits_total = Counter(
     "cachewarp_cache_hits_total",
     "Total number of cache hits",
-    ["cache_layer"]  # Label to distinguish between L1 and L2
+    ["cache_layer"],  # Label to distinguish between L1 and L2
 )
 
 # Cache Miss Counter:
@@ -19,9 +19,7 @@ cache_hits_total = Counter(
 # and had to fetch it from the origin server. The 'cache_layer' label again tells us
 # if the miss happened in L1 or L2, which is crucial for identifying areas for optimization.
 cache_misses_total = Counter(
-    "cachewarp_cache_misses_total",
-    "Total number of cache misses",
-    ["cache_layer"]
+    "cachewarp_cache_misses_total", "Total number of cache misses", ["cache_layer"]
 )
 
 # Request Latency Histogram:
@@ -32,15 +30,26 @@ cache_misses_total = Counter(
 request_latency_seconds = Histogram(
     "cachewarp_request_latency_seconds",
     "Request latency in seconds",
-    buckets=[0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0]  # Updated buckets for better granularity
+    buckets=[
+        0.001,
+        0.002,
+        0.005,
+        0.01,
+        0.02,
+        0.05,
+        0.1,
+        0.2,
+        0.5,
+        1.0,
+        2.0,
+    ],  # Updated buckets for better granularity
 )
 
 # Total Requests Counter:
 # A simple counter to keep track of the total number of requests our proxy has handled.
 # This is a fundamental metric for understanding the traffic volume our service is managing.
 requests_total = Counter(
-    "cachewarp_requests_total",
-    "Total number of requests processed"
+    "cachewarp_requests_total", "Total number of requests processed"
 )
 
 # Circuit Breaker State Gauge:
@@ -50,7 +59,7 @@ requests_total = Counter(
 # when it's unhealthy.
 circuit_breaker_state = Gauge(
     "cachewarp_circuit_breaker_state",
-    "Current state of the circuit breaker (0=CLOSED, 1=OPEN, 2=HALF_OPEN)"
+    "Current state of the circuit breaker (0=CLOSED, 1=OPEN, 2=HALF_OPEN)",
 )
 
 # Redis Error Counter:
@@ -60,7 +69,7 @@ circuit_breaker_state = Gauge(
 redis_errors_total = Counter(
     "cachewarp_redis_errors_total",
     "Total number of Redis errors",
-    ["error_type"]  # Label for ConnectionError, TimeoutError, etc.
+    ["error_type"],  # Label for ConnectionError, TimeoutError, etc.
 )
 
 # Origin Error Counter:
@@ -70,8 +79,9 @@ redis_errors_total = Counter(
 origin_errors_total = Counter(
     "cachewarp_origin_errors_total",
     "Total number of origin fetch errors",
-    ["error_type"]
+    ["error_type"],
 )
+
 
 # --- Helper Function for Logging Metric Recording Errors ---
 def log_metrics_error(metric_name: str, error: Exception) -> None:
@@ -87,6 +97,7 @@ def log_metrics_error(metric_name: str, error: Exception) -> None:
     """
     logger.error(f"Failed to record metric {metric_name}: {str(error)}", exc_info=True)
 
+
 # --- Helper Functions to Record Specific Metrics Safely ---
 def record_cache_hit(cache_layer: str) -> None:
     """
@@ -97,6 +108,7 @@ def record_cache_hit(cache_layer: str) -> None:
     except Exception as e:
         log_metrics_error("cache_hits_total", e)
 
+
 def record_cache_miss(cache_layer: str) -> None:
     """
     Records a cache miss for the specified cache layer (L1 or L2).
@@ -105,6 +117,7 @@ def record_cache_miss(cache_layer: str) -> None:
         cache_misses_total.labels(cache_layer=cache_layer).inc()
     except Exception as e:
         log_metrics_error("cache_misses_total", e)
+
 
 def observe_request_latency(duration: float) -> None:
     """
@@ -117,6 +130,7 @@ def observe_request_latency(duration: float) -> None:
     except Exception as e:
         log_metrics_error("request_latency_seconds", e)  # Fixed typo
 
+
 def record_request() -> None:
     """
     Records a processed request.
@@ -127,6 +141,7 @@ def record_request() -> None:
         requests_total.inc()
     except Exception as e:
         log_metrics_error("requests_total", e)
+
 
 def set_circuit_breaker_state(state: str) -> None:
     """
@@ -140,6 +155,7 @@ def set_circuit_breaker_state(state: str) -> None:
     except Exception as e:
         log_metrics_error("circuit_breaker_state", e)
 
+
 def record_redis_error(error_type: str) -> None:
     """
     Records a Redis error with a specific type (e.g., "ConnectionError").
@@ -149,6 +165,7 @@ def record_redis_error(error_type: str) -> None:
         redis_errors_total.labels(error_type=error_type).inc()
     except Exception as e:
         log_metrics_error("redis_errors_total", e)
+
 
 def record_origin_error(error_type: str) -> None:
     """

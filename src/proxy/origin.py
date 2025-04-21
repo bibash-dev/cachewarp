@@ -5,6 +5,7 @@ from src.config import settings
 from src.proxy.metrics import record_origin_error  # Import metrics
 from typing import Dict, Any
 
+
 async def fetch_origin(path: str) -> Dict[str, Any]:
     """
     Asynchronously fetches data from the configured origin server.
@@ -27,30 +28,38 @@ async def fetch_origin(path: str) -> Dict[str, Any]:
             # Assuming the origin serves text-based content (text files, JSON, etc.)
             data = await response.read()  # Read the response body as bytes
             content_type = response.headers.get("Content-Type", "text/plain")
-            logger.info(f"Origin fetch successful for {target_url}, Content-Type: {content_type}")
+            logger.info(
+                f"Origin fetch successful for {target_url}, Content-Type: {content_type}"
+            )
             return {
                 "content_type": content_type,
                 "data": data.decode("utf-8"),  # Decode the bytes to a string
-                "status_code": response.status
+                "status_code": response.status,
             }
         except ClientConnectorError as e:
-            logger.error(f"Origin connection error for {target_url}: {str(e)}", exc_info=True)
-            record_origin_error("ClientConnectorError")  # Record the connection error metric
+            logger.error(
+                f"Origin connection error for {target_url}: {str(e)}", exc_info=True
+            )
+            record_origin_error(
+                "ClientConnectorError"
+            )  # Record the connection error metric
             raise  # Re-raise the exception to be handled by the caller
         except aiohttp.ClientResponseError as e:
-            logger.warning(f"Origin returned error for {target_url}: {e.status} {e.message}")
-            record_origin_error("ClientResponseError")  # Record the client response error metric
-            return {
-                "error": e.message,
-                "status_code": e.status
-            }
+            logger.warning(
+                f"Origin returned error for {target_url}: {e.status} {e.message}"
+            )
+            record_origin_error(
+                "ClientResponseError"
+            )  # Record the client response error metric
+            return {"error": e.message, "status_code": e.status}
         except Exception as e:
-            logger.error(f"Unexpected error fetching from origin {target_url}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Unexpected error fetching from origin {target_url}: {str(e)}",
+                exc_info=True,
+            )
             record_origin_error("UnexpectedError")  # Record the unexpected error metric
-            return {
-                "error": "Internal server error",
-                "status_code": 500
-            }
+            return {"error": "Internal server error", "status_code": 500}
+
 
 async def fetch_origin_with_mock(path: str) -> Dict[str, Any]:
     """
@@ -70,11 +79,11 @@ async def fetch_origin_with_mock(path: str) -> Dict[str, Any]:
             return {
                 "content_type": "image/png",
                 "data": {"mock_image": True, "path": path},
-                "status_code": 200
+                "status_code": 200,
             }
         # Default mock response for other paths (e.g., JSON data)
         return {
             "content_type": "application/json",
             "data": {f"mock_response_for_{path}": True, "path": path},
-            "status_code": 200
+            "status_code": 200,
         }
