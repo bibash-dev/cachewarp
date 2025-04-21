@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Origin API Configuration
     origin_url: str = Field(
-        default="http://origin:8080",
+        default="http://origin:80",
         description="Base URL of the origin API server that the proxy will forward requests to.",
     )
 
