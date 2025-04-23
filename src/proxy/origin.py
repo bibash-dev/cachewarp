@@ -2,7 +2,7 @@ import aiohttp
 from aiohttp import ClientConnectorError
 from src.logging import logger
 from src.config import settings
-from src.proxy.metrics import record_origin_error  # Import metrics
+from src.proxy.metrics import record_origin_error
 from typing import Dict, Any
 
 
@@ -27,13 +27,13 @@ async def fetch_origin(path: str) -> Dict[str, Any]:
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             # Assuming the origin serves text-based content (text files, JSON, etc.)
             data = await response.read()  # Read the response body as bytes
-            content_type = response.headers.get("Content-Type", "text/plain")
+            content_type = response.headers.get("Content-Type", "application/octet-stream")
             logger.info(
                 f"Origin fetch successful for {target_url}, Content-Type: {content_type}"
             )
             return {
                 "content_type": content_type,
-                "data": data.decode("utf-8"),  # Decode the bytes to a string
+                "data": data,  # Return raw bytes, don't decode
                 "status_code": response.status,
             }
         except ClientConnectorError as e:
@@ -76,14 +76,16 @@ async def fetch_origin_with_mock(path: str) -> Dict[str, Any]:
         logger.debug(f"Returning mock response for path: {path}")
         if path.startswith("/static/"):
             # Mock response for static content (e.g., images)
+            mock_png_data = b"\x89PNG\r\n\x1a\n"  # Minimal PNG header
             return {
                 "content_type": "image/png",
-                "data": {"mock_image": True, "path": path},
+                "data": mock_png_data,  # Return bytes to match real response
                 "status_code": 200,
             }
         # Default mock response for other paths (e.g., JSON data)
+        mock_json_data = f'{{"mock_response_for_{path}": true, "path": "{path}"}}'
         return {
             "content_type": "application/json",
-            "data": {f"mock_response_for_{path}": True, "path": path},
+            "data": mock_json_data.encode("utf-8"),  # Encode as bytes
             "status_code": 200,
         }

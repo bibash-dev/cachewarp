@@ -181,9 +181,9 @@ async def caching_middleware(
 
     # --- Step 6: Attempt to Retrieve from Cache ---
     try:
-        cached, is_stale = await cache.get(
+        cached, is_stale, content_type = await cache.get(
             cache_key
-        )  # Try to get the cached response and its staleness status
+        )  # Try to get the cached response, its staleness status, and content type
         logger.debug(
             f"Cache get result for {cache_key}: cached={cached is not None}, is_stale={is_stale}"
         )
@@ -209,8 +209,8 @@ async def caching_middleware(
             duration = time.time() - start_time
             observe_request_latency(duration)  # Record latency
             return Response(
-                content=cached, media_type="text/plain", status_code=200
-            )  # Return the cached response
+                content=cached, media_type=content_type or "application/octet-stream", status_code=200
+            )  # Return the cached response with the correct content type
         record_cache_miss(
             "L2" if cache.redis else "L1"
         )  # Increment the cache miss metric
@@ -246,7 +246,7 @@ async def caching_middleware(
     if lock_value:
         try:
             # Double-check the cache after acquiring the lock to prevent race conditions
-            cached, is_stale = await cache.get(cache_key)
+            cached, is_stale, content_type = await cache.get(cache_key)
             if cached is not None:
                 cache_layer = "L2" if cache.redis else "L1"  # Determine cache layer
                 record_cache_hit(cache_layer)  # Record cache hit
@@ -256,7 +256,7 @@ async def caching_middleware(
                 duration = time.time() - start_time
                 observe_request_latency(duration)  # Record latency
                 return Response(
-                    content=cached, media_type="text/plain", status_code=200
+                    content=cached, media_type=content_type or "application/octet-stream", status_code=200
                 )
             # If still a miss after acquiring the lock, fetch data from the origin
             response = await fetch_and_return(request, cache, cache_key, client_ttl)
@@ -270,7 +270,7 @@ async def caching_middleware(
         # If the lock couldn't be acquired (another request is likely fetching), wait and retry cache
         logger.debug(f"Lock held for {lock_key}, waiting 50ms to retry cache")
         await asyncio.sleep(0.05)
-        cached, is_stale = await cache.get(cache_key)
+        cached, is_stale, content_type = await cache.get(cache_key)
         if cached is not None:
             cache_layer = "L2" if cache.redis else "L1"  # Determine cache layer
             record_cache_hit(cache_layer)  # Record cache hit
@@ -279,7 +279,7 @@ async def caching_middleware(
             )
             duration = time.time() - start_time
             observe_request_latency(duration)  # Record latency
-            return Response(content=cached, media_type="text/plain", status_code=200)
+            return Response(content=cached, media_type=content_type or "application/octet-stream", status_code=200)
         logger.warning(f"No cache after waiting for lock, fetching from origin")
         response = await fetch_and_return(
             request, cache, None
@@ -307,7 +307,7 @@ async def fetch_and_return(
             f"Circuit breaker in OPEN state, attempting to serve stale data for {request.url.path}"
         )
         if cache_key:
-            cached, is_stale = await cache.get(cache_key)
+            cached, is_stale, content_type = await cache.get(cache_key)
             if cached is not None:
                 cache_layer = "L2" if cache.redis else "L1"  # Determine cache layer
                 record_cache_hit(
@@ -317,7 +317,7 @@ async def fetch_and_return(
                     f"Serving stale data due to circuit breaker OPEN state: {cache_key}, layer={cache_layer}"
                 )
                 return Response(
-                    content=cached, media_type="text/plain", status_code=200
+                    content=cached, media_type=content_type or "application/octet-stream", status_code=200
                 )
         logger.error(
             f"Circuit breaker in OPEN state and no stale data available for {request.url.path}"
@@ -330,7 +330,7 @@ async def fetch_and_return(
         logger.debug(f"Origin response for {request.url.path}: {origin_data}")
         if "error" not in origin_data:
             try:
-                content_type = origin_data.get("content_type", "text/plain")
+                content_type = origin_data.get("content_type", "application/octet-stream")
                 status_code = origin_data.get("status_code", 200)
                 data = origin_data["data"]
                 # --- Step 3: Calculate TTL for Caching ---
@@ -344,7 +344,7 @@ async def fetch_and_return(
                 )
                 # --- Step 4: Cache the Response ---
                 if cache_key and ttl > 0:
-                    await cache.set(cache_key, data, ttl=ttl)
+                    await cache.set(cache_key, data, content_type, ttl=ttl)  # Pass content_type to cache
                     logger.info(f"Cache set for: {cache_key}")
                 # --- Step 5: Record Success in Circuit Breaker ---
                 circuit_breaker.record_success()
@@ -377,7 +377,7 @@ async def fetch_and_return(
         circuit_breaker.record_failure()  # Report failure to the circuit breaker
         # --- Step 7: Fallback to Stale Data on Origin Failure ---
         if cache_key:
-            cached, is_stale = await cache.get(cache_key)
+            cached, is_stale, content_type = await cache.get(cache_key)
             if cached is not None:
                 cache_layer = "L2" if cache.redis else "L1"  # Determine cache layer
                 record_cache_hit(
@@ -387,7 +387,7 @@ async def fetch_and_return(
                     f"Serving stale data due to origin failure: {cache_key}, layer={cache_layer}"
                 )
                 return Response(
-                    content=cached, media_type="text/plain", status_code=200
+                    content=cached, media_type=content_type or "application/octet-stream", status_code=200
                 )
         return JSONResponse(content={"error": "Service Unavailable"}, status_code=503)
 
@@ -419,11 +419,11 @@ async def refresh_cache(cache: Cache, cache_key: str, lock_key: str, path: str) 
             logger.debug(f"Attempting background refresh for path: {path}")
             origin_data = await fetch_origin(path)
             if "error" not in origin_data:
-                content_type = origin_data.get("content_type", "text/plain")
+                content_type = origin_data.get("content_type", "application/octet-stream")
                 status_code = origin_data.get("status_code", 200)
                 ttl = calculate_ttl(path, content_type, status_code)
                 # --- Step 3: Update Cache with Fresh Data ---
-                await cache.set(cache_key, origin_data["data"], ttl=ttl)
+                await cache.set(cache_key, origin_data["data"], content_type, ttl=ttl)  # Pass content_type to cache
                 logger.info(f"Background cache refresh completed for: {cache_key}")
                 # --- Step 4: Record Success in Circuit Breaker ---
                 circuit_breaker.record_success()

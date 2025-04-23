@@ -110,26 +110,28 @@ class Cache:
             self.redis = None
             logger.info("Redis connection closed")
 
-    async def get(self, key: str) -> Tuple[Optional[Any], bool]:
+    async def get(self, key: str) -> Tuple[Optional[Any], bool, Optional[str]]:
         """
         Retrieves the value associated with the given key, checking the L1 cache first,
         then the L2 cache (Redis) if not found in L1.
 
         Returns:
-            Tuple[Optional[Any], bool]:
+            Tuple[Optional[Any], bool, Optional[str]]:
                 - The cached value (can be None if not found or if there's an error).
                 - A boolean indicating if the retrieved value from L2 was considered stale.
+                - The content type associated with the cached value (e.g., "image/png").
         """
         # 1. Check L1 cache (in-memory for fast access)
-        if value := self.l1_cache.get(key):
+        if key in self.l1_cache:
+            cached = self.l1_cache.get(key)
             # Calculate remaining TTL based on the stored expiration time
             expiration = self._l1_expirations.get(key, 0)
-            ttl_remaining = max(0, expiration - time.time())
+            ttl_remaining = max(0, int(expiration - time.time()))
             logger.debug(
                 f"L1 cache hit: {key}, TTL remaining: {ttl_remaining:.2f} seconds"
             )
             record_cache_hit("L1")  # Increment the L1 cache hit metric
-            return value, False  # Value found in L1, so it's not stale
+            return cached["data"], False, cached["content_type"]  # Value found in L1, so it's not stale
 
         logger.debug(f"L1 cache miss: {key}")
         record_cache_miss("L1")  # Increment the L1 cache miss metric
@@ -139,90 +141,65 @@ class Cache:
             logger.error("Redis not connected")
             raise RuntimeError("Redis not connected")
         try:
-            data = await self.redis.get(key)  # Get the raw JSON data from Redis
+            data = await self.redis.get(key)  # Get the raw binary data from Redis
+            content_type = await self.redis.get(f"{key}:content_type")  # Get the content type
             ttl = await self.redis.ttl(key)  # Get the TTL of the key in Redis
             logger.debug(
                 f"Redis get for {key}: data exists={data is not None}, TTL={ttl}"
             )
             if data:
-                try:
-                    parsed = json.loads(data)  # Parse the outer JSON structure
-                    value = json.loads(
-                        parsed["value"]
-                    )  # Parse the actual cached value (which was JSON-encoded)
-                    set_time = parsed[
-                        "set_time"
-                    ]  # Timestamp when the value was set in Redis
-                    original_ttl = parsed["ttl"]  # Original TTL set for the value
-                    elapsed = (
-                        time.time() - set_time
-                    )  # Time elapsed since the value was cached
-                    is_stale = (
-                        elapsed > original_ttl
-                    )  # Check if the cached data has exceeded its original TTL
+                # Since data is now stored as raw bytes, no JSON parsing is needed
+                set_time = float(await self.redis.get(f"{key}:set_time") or 0)
+                original_ttl = float(await self.redis.get(f"{key}:ttl") or 0)
+                elapsed = time.time() - set_time
+                is_stale = elapsed > original_ttl
+                logger.debug(
+                    f"Cache {key}: set_time={set_time}, ttl={original_ttl}, elapsed={elapsed}, is_stale={is_stale}"
+                )
+                if not is_stale:
+                    # If the data from L2 is not stale, populate the L1 cache
+                    l1_ttl = max(original_ttl - elapsed, 1) if original_ttl > elapsed else 1
+                    self.l1_cache.set(key, {"data": data, "content_type": content_type}, ttl=l1_ttl)
+                    self._l1_expirations[key] = time.time() + l1_ttl
                     logger.debug(
-                        f"Cache {key}: set_time={set_time}, ttl={original_ttl}, elapsed={elapsed}, is_stale={is_stale}"
+                        f"L2 cache hit: {key}, populated L1 with TTL {l1_ttl}"
                     )
-                    if not is_stale:
-                        # If the data from L2 is not stale, populate the L1 cache
-                        l1_ttl = (
-                            max(original_ttl - elapsed, 1)
-                            if original_ttl > elapsed
-                            else 1
-                        )
-                        self.l1_cache.set(key, value, ttl=l1_ttl)
-                        self._l1_expirations[key] = (
-                            time.time() + l1_ttl
-                        )  # Store the absolute expiration time
-                        logger.debug(
-                            f"L2 cache hit: {key}, populated L1 with TTL {l1_ttl}"
-                        )
-                    else:
-                        logger.debug(f"L2 cache stale hit: {key}")
-                    record_cache_hit("L2")  # Increment the L2 cache hit metric
-                    return value, is_stale
-                except json.JSONDecodeError:
-                    logger.error(f"Invalid JSON in Redis for key {key}, clearing")
-                    await self.redis.delete(key)  # Remove the invalid entry from Redis
-                    return None, False
+                else:
+                    logger.debug(f"L2 cache stale hit: {key}")
+                record_cache_hit("L2")  # Increment the L2 cache hit metric
+                return data, is_stale, content_type
 
             # Check for potentially stale data in a separate key (if the fresh key was a miss)
             stale_key = f"stale:{key}"
             stale_data = await self.redis.get(stale_key)
+            stale_content_type = await self.redis.get(f"stale:{key}:content_type")
             if stale_data:
-                value = json.loads(stale_data)  # Parse the stale JSON data
                 logger.debug(f"Stale cache hit: {stale_key}")
-                record_cache_hit(
-                    "L2"
-                )  # Increment the L2 cache hit metric (for stale data)
-                return value, True  # Indicate that the data is stale
+                record_cache_hit("L2")  # Increment the L2 cache hit metric (for stale data)
+                return stale_data, True, stale_content_type  # Indicate that the data is stale
 
             logger.debug(f"L2 cache miss: {key}")
             record_cache_miss("L2")  # Increment the L2 cache miss metric
-            return None, False  # Key not found in L2
+            return None, False, None  # Key not found in L2
 
         except ConnectionError as e:
             logger.error(
                 f"Redis connection error for key {key}: {str(e)}", exc_info=True
             )
-            record_redis_error(
-                "ConnectionError"
-            )  # Record Redis connection error metric
-            return None, False
+            record_redis_error("ConnectionError")  # Record Redis connection error metric
+            return None, False, None
         except TimeoutError as e:
             logger.warning(
                 f"Redis timeout error for key {key}: {str(e)}", exc_info=True
             )
             record_redis_error("TimeoutError")  # Record Redis timeout error metric
-            return None, False
+            return None, False, None
         except Exception as e:
             logger.error(f"Redis get error for key {key}: {str(e)}", exc_info=True)
-            record_redis_error(
-                "UnexpectedError"
-            )  # Record unexpected Redis error metric
-            return None, False
+            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
+            return None, False, None
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    async def set(self, key: str, value: Any, content_type: str, ttl: Optional[int] = None) -> None:
         """
         Sets the value for the given key in both the L1 (in-memory) and L2 (Redis) caches.
 
@@ -232,7 +209,8 @@ class Cache:
 
         Args:
             key (str): The key under which to store the value.
-            value (Any): The value to be cached.
+            value (Any): The value to be cached (expected to be bytes for binary data).
+            content_type (str): The Content-Type of the value (e.g., "image/png").
             ttl (Optional[int]): The time-to-live for the cache entry in seconds.
         """
         effective_ttl = ttl if ttl is not None else settings.cache_default_ttl
@@ -241,10 +219,8 @@ class Cache:
             return
 
         # 1. Set in L1 cache (in-memory)
-        self.l1_cache.set(key, value, ttl=effective_ttl)
-        self._l1_expirations[key] = (
-            time.time() + effective_ttl
-        )  # Store the absolute expiration time
+        self.l1_cache.set(key, {"data": value, "content_type": content_type}, ttl=effective_ttl)
+        self._l1_expirations[key] = time.time() + effective_ttl
         logger.debug(f"L1 cache set: {key} with TTL {effective_ttl} seconds")
 
         # 2. Set in L2 cache (Redis)
@@ -252,25 +228,25 @@ class Cache:
             logger.error("Redis not connected")
             raise RuntimeError("Redis not connected")
         try:
-            # Store fresh data with metadata (set time and original TTL) for revalidation
-            data = {
-                "value": json.dumps(value),
-                "set_time": time.time(),
-                "ttl": effective_ttl,
-            }
-            await self.redis.setex(key, int(effective_ttl), json.dumps(data))
+            # Store fresh data as raw bytes
+            await self.redis.setex(key, int(effective_ttl), value)
+            # Store metadata for staleness check
+            await self.redis.setex(f"{key}:set_time", int(effective_ttl), str(time.time()))
+            await self.redis.setex(f"{key}:ttl", int(effective_ttl), str(effective_ttl))
+            await self.redis.setex(f"{key}:content_type", int(effective_ttl), content_type)
             # Store a potentially stale version of the data with an extended TTL
             stale_key = f"stale:{key}"
             await self.redis.setex(
                 stale_key,
-                int(
-                    effective_ttl + settings.stale_ttl_offset
-                ),  # Longer TTL for stale data
-                json.dumps(value),
+                int(effective_ttl + settings.stale_ttl_offset),
+                value,
             )
-            redis_ttl = await self.redis.ttl(
-                key
-            )  # Get the actual TTL set in Redis for debugging
+            await self.redis.setex(
+                f"{stale_key}:content_type",
+                int(effective_ttl + settings.stale_ttl_offset),
+                content_type,
+            )
+            redis_ttl = await self.redis.ttl(key)
             logger.debug(
                 f"L2 cache set: {key} with TTL {int(effective_ttl)} seconds, actual Redis TTL={redis_ttl}"
             )
@@ -282,9 +258,7 @@ class Cache:
                 f"Redis connection error during set for key {key}: {str(e)}",
                 exc_info=True,
             )
-            record_redis_error(
-                "ConnectionError"
-            )  # Record Redis connection error metric
+            record_redis_error("ConnectionError")  # Record Redis connection error metric
         except TimeoutError as e:
             logger.warning(
                 f"Redis timeout error during set for key {key}: {str(e)}", exc_info=True
@@ -292,9 +266,7 @@ class Cache:
             record_redis_error("TimeoutError")  # Record Redis timeout error metric
         except Exception as e:
             logger.error(f"Redis set error for key {key}: {str(e)}", exc_info=True)
-            record_redis_error(
-                "UnexpectedError"
-            )  # Record unexpected Redis error metric
+            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
 
     async def acquire_lock(self, lock_key: str, timeout: int = 10) -> Optional[str]:
         """
@@ -329,9 +301,7 @@ class Cache:
                 f"Redis connection error acquiring lock {lock_key}: {str(e)}",
                 exc_info=True,
             )
-            record_redis_error(
-                "ConnectionError"
-            )  # Record Redis connection error metric
+            record_redis_error("ConnectionError")  # Record Redis connection error metric
             return None
         except TimeoutError as e:
             logger.warning(
@@ -342,9 +312,7 @@ class Cache:
             return None
         except Exception as e:
             logger.error(f"Error acquiring lock {lock_key}: {str(e)}", exc_info=True)
-            record_redis_error(
-                "UnexpectedError"
-            )  # Record unexpected Redis error metric
+            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
             return None
 
     async def release_lock(self, lock_key: str, lock_value: str) -> bool:
@@ -378,7 +346,7 @@ class Cache:
                 logger.debug(f"Released lock: {lock_key}")
                 return True
             logger.debug(
-                f"Failed to release lock: {lock_key} (value mismatch or expired)"
+                f"Failed to release lock: {lock_key} ( extravalue mismatch or expired)"
             )
             return False
         except ConnectionError as e:
@@ -386,9 +354,7 @@ class Cache:
                 f"Redis connection error releasing lock {lock_key}: {str(e)}",
                 exc_info=True,
             )
-            record_redis_error(
-                "ConnectionError"
-            )  # Record Redis connection error metric
+            record_redis_error("ConnectionError")  # Record Redis connection error metric
             return False
         except TimeoutError as e:
             logger.warning(
@@ -399,7 +365,5 @@ class Cache:
             return False
         except Exception as e:
             logger.error(f"Error releasing lock {lock_key}: {str(e)}", exc_info=True)
-            record_redis_error(
-                "UnexpectedError"
-            )  # Record unexpected Redis error metric
+            record_redis_error("UnexpectedError")  # Record unexpected Redis error metric
             return False
