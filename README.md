@@ -62,7 +62,7 @@ CacheWarp solves these problems by:
 - [x] Circuit breaker implementation
 
 ### Week 3: Observability & Performance
-- [ ] Prometheus metrics collection
+- [x] Prometheus metrics collection
 - [ ] Performance optimization
 - [ ] Load testing and benchmarking
 - [ ] Grafana dashboard creation

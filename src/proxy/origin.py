@@ -27,7 +27,9 @@ async def fetch_origin(path: str) -> Dict[str, Any]:
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
             # Assuming the origin serves text-based content (text files, JSON, etc.)
             data = await response.read()  # Read the response body as bytes
-            content_type = response.headers.get("Content-Type", "application/octet-stream")
+            content_type = response.headers.get(
+                "Content-Type", "application/octet-stream"
+            )
             logger.info(
                 f"Origin fetch successful for {target_url}, Content-Type: {content_type}"
             )
